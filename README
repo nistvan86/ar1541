@@ -1,0 +1,13 @@
+ar1541 - Commodore 1541 floppy drive emulator based on the Arduino platform.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Project URL: https://github.com/nistvan86/ar1541
+
+ar1541 utilizes the Arduino open source hardware platform to emulate the Commodore 1541 floppy disk drive for using with the Commodore 64.
+
+The project has several planned components: 
+
+* The most notably is the sketch running on the Arduino. (This is in the repository you are viewing right now.) Currently the Uno is the only supported board for this kind of purpose which is being used for the development as well. With the help of the community more boards can be added in the future. Arduino can be connected with a minimal set of external components to the IEC serial bus. Please read the corresponding wiki page for more information. You need the Arduino Eclipse plugin to build and upload this project. Please use the instructions specified on the project's page.
+
+* Because the Arduino has a limited size of ROM and RAM space the emulated floppy images have to be accessed through the USB serial connection from a host. The host software is planned to be written in Java which allows running it on several platforms (including Android in the future). Later the project can be extended to allow the use of the Arduino SD card and Ethernet shield for serving disk image data from these sources. This part of the project is not yet started.
+
+The code is still in a very early stage. You can pull the sources and upload the built binary to an Arduino Uno then load a simple hardwired game on a real C64. Contributions and comments are welcome.
