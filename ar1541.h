@@ -11,16 +11,9 @@ extern "C" {
 #endif
   void loop();
   void setup();
+  void atexit( void ) { } // Required for Singleton classes for some reason to make GCC happy. :|
 #ifdef __cplusplus
 } // extern "C"
 #endif
-
-// These are called externally (interrupts or objects)
-void eoiInterrupt();
-void atnChangedInterrupt();
-void clockChangedInterrupt();
-void readyToSend();
-
-void sendMiniProg();
 
 #endif /* AR1541_H_ */

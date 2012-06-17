@@ -1,7 +1,5 @@
 ar1541 - Commodore 1541 floppy drive emulator based on the Arduino platform.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Project URL: https://github.com/nistvan86/ar1541
-
 ar1541 utilizes the Arduino open source hardware platform to emulate the Commodore 1541 floppy disk drive for using with the Commodore 64.
 
 The project has several planned components: 

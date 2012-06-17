@@ -3,59 +3,67 @@
 
 #include "Arduino.h"
 #include <utils.h>
+#include <interruptrouter.h>
+#include <iecdosinterpreter.h>
 
 #define DATA_BUFFER_SIZE 64
 
-typedef void(*readyToSendFunc)();
+class IECDOSInterpreter;
 
-class IECTransreceiver {
- public:
-	  IECTransreceiver();
-    void reset();
-    void start();
-    boolean sendByte(byte frame, boolean withEoi);
-    void releaseClockLine();
-    void atnLineChanged();
-    void clockLineChanged();
-    void dataLineChanged();
-    void timerInterrupt();
-    void setReadyToSendCallback(readyToSendFunc function);
-    boolean isTalker();
-    boolean isTransmitting();
- private:
-    int state;
-    boolean eoiReceived;
-    boolean sendingWithEoi;
-    byte currentDataByte;
-    byte currentDataBit;
-    byte dataBuffer[DATA_BUFFER_SIZE];
-    byte dataBufferLength;
+class IECTransreceiver: public InterruptListener {
+public:
+  void reset();
+  void start();
+  boolean sendByte(byte frame, boolean withEoi);
+  boolean isTalker();
+  boolean isTransmitting();
+private:
+  IECTransreceiver(IECDOSInterpreter * dosInterpreter);
+  IECTransreceiver(IECTransreceiver const&); // Don't implement
+  void operator=(IECTransreceiver const&); // Don't implement
 
-    boolean attention;
-    boolean listener;
-    boolean talker;
-    byte channelToTalk;
-    readyToSendFunc readyToSendCallback;
+  IECDOSInterpreter * dosInterpreter;
+  int state;
+  boolean eoiReceived;
+  boolean sendingWithEoi;
+  byte currentDataByte;
+  byte currentDataBit;
+  byte dataBuffer[DATA_BUFFER_SIZE];
+  byte dataBufferLength;
 
-    void goToIdleState();
-    void beginAttention();
-    void endAttention();
-    void processTalkCommand();
-    void processListenCommand();
-    void processIncomingBit();
-    void doTalkerTurnaround();
-    void processUnlistenCommand();
-    void processUntalkCommand();
-    void confirmEoi();
-    void startTransmission();
-    void finishTransmission();
-    void sendNextBit();
+  boolean attention;
+  boolean listener;
+  boolean talker;
+  byte channelToTalk;
 
-    void setState(int newState);
-    void beginReceivingData();
-    void resetDataBuffer();
-    void printBuffer();
-    void processData();
+  void goToIdleState();
+  void beginAttention();
+  void endAttention();
+  void processTalkCommand();
+  void processListenCommand();
+  void processIncomingBit();
+  void doTalkerTurnaround();
+  void processUnlistenCommand();
+  void processUntalkCommand();
+  void confirmEoi();
+  void startTransmission();
+  void finishTransmission();
+  void sendNextBit();
+
+  void setState(int newState);
+  void beginReceivingData();
+  void resetDataBuffer();
+  void printBuffer();
+  void processData();
+  void releaseClockLine();
+
+  virtual void atnLineChanged();
+  virtual void clockLineChanged();
+  virtual void dataLineChanged();
+  virtual void timerInterrupt();
+  virtual void resetLineChanged();
+
+  friend class IECDOSInterpreter;
 };
 
 #endif /* IECTRANSRECEIVER_H_ */

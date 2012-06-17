@@ -1,51 +1,57 @@
 #include "iectransreceiver.h"
 
 // Idle states
-#define STATE_RESET -1
-#define STATE_IDLE 0
+#define TRANSRECEIVER_STATE_RESET -1
+#define TRANSRECEIVER_STATE_IDLE 0
 // Listener states
-#define STATE_WAIT_FOR_TALKER 1
-#define STATE_READY_FOR_DATA 2
-#define STATE_DATA_RECEIVED 3
+#define TRANSRECEIVER_STATE_WAIT_FOR_TALKER 1
+#define TRANSRECEIVER_STATE_READY_FOR_DATA 2
+#define TRANSRECEIVER_STATE_DATA_RECEIVED 3
 // Talker states
-#define STATE_BECOMING_TALKER 4
-#define STATE_TALKER_IDLE 5
-#define STATE_TALKER_WAIT_FOR_DATA_ACCEPT 6
-#define STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE 7
-#define STATE_TALKER_WRITING_DATA_BITS 8
-#define STATE_TALKER_WAIT_FOR_FRAME_ACKNOWLEDGEMENT 9
+#define TRANSRECEIVER_STATE_BECOMING_TALKER 4
+#define TRANSRECEIVER_STATE_TALKER_IDLE 5
+#define TRANSRECEIVER_STATE_TALKER_WAIT_FOR_DATA_ACCEPT 6
+#define TRANSRECEIVER_STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE 7
+#define TRANSRECEIVER_STATE_TALKER_WRITING_DATA_BITS 8
+#define TRANSRECEIVER_STATE_TALKER_WAIT_FOR_FRAME_ACKNOWLEDGEMENT 9
 
-IECTransreceiver::IECTransreceiver() {
-  readyToSendCallback = NULL;
-  reset();
+IECTransreceiver::IECTransreceiver(IECDOSInterpreter * dosInterpreter) {
+  this->dosInterpreter = dosInterpreter;
+  InterruptRouter::getInstance().setInterruptListener(this);
 }
 
 void IECTransreceiver::reset() {
-  if (state == STATE_RESET)
+  if (state == TRANSRECEIVER_STATE_RESET) {
     return;
+  }
 
-  Serial.println("R");
-  setState(STATE_RESET);
-  stopTimer();
+  setState(TRANSRECEIVER_STATE_RESET);
+
+  InterruptRouter::getInstance().stopTimer();
+  InterruptRouter::getInstance().disableInterrupt(DATA_INTERRUPT);
+  InterruptRouter::getInstance().disableInterrupt(CLOCK_INTERRUPT);
+
   attention = false;
   listener = false;
   talker = false;
   eoiReceived = false;
-  disableInterrupt(DATA_INTERRUPT);
-  enableInterrupt(CLOCK_INTERRUPT);
+
   writePin(DATA_PIN, false); // Release data pin if it's hold down
   writePin(CLOCK_PIN, false); // Release the data line
+
+  Serial.println("R");
 }
 
 void IECTransreceiver::start() {
-  if (state == STATE_RESET) {
+  if (state == TRANSRECEIVER_STATE_RESET) {
     Serial.print(">");
+    InterruptRouter::getInstance().enableInterrupt(CLOCK_INTERRUPT);
     goToIdleState();
   }
 }
 
 boolean IECTransreceiver::sendByte(byte frame, boolean withEoi) {
-  if (!talker || state == STATE_RESET || state >= STATE_TALKER_WAIT_FOR_DATA_ACCEPT) {
+  if (!talker || state == TRANSRECEIVER_STATE_RESET || state >= TRANSRECEIVER_STATE_TALKER_WAIT_FOR_DATA_ACCEPT) {
     return false;
   }
 
@@ -53,8 +59,8 @@ boolean IECTransreceiver::sendByte(byte frame, boolean withEoi) {
   currentDataBit = 0;
   sendingWithEoi = withEoi;
 
-  setState(STATE_TALKER_WAIT_FOR_DATA_ACCEPT);
-  enableInterrupt(DATA_INTERRUPT);
+  setState(TRANSRECEIVER_STATE_TALKER_WAIT_FOR_DATA_ACCEPT);
+  InterruptRouter::getInstance().enableInterrupt(DATA_INTERRUPT);
   writePin(CLOCK_PIN, false); // release the clock to flag that we are ready to send data
 
   return true;
@@ -65,7 +71,7 @@ void IECTransreceiver::releaseClockLine() {
 }
 
 void IECTransreceiver::atnLineChanged() {
-  if (state == STATE_RESET)
+  if (state == TRANSRECEIVER_STATE_RESET)
     return;
 
   byte atn = readPin(ATN_PIN);
@@ -77,18 +83,18 @@ void IECTransreceiver::atnLineChanged() {
 }
 
 void IECTransreceiver::clockLineChanged() {
-  if (state == STATE_RESET || (!listener && !attention && state != STATE_BECOMING_TALKER)) {
+  if (state == TRANSRECEIVER_STATE_RESET || (!listener && !attention && state != TRANSRECEIVER_STATE_BECOMING_TALKER)) {
     return;
   }
 
   byte clock = readPin(CLOCK_PIN);
   if (clock == HIGH) {
-    if (state == STATE_WAIT_FOR_TALKER) { // Talker signaled that it's ready to send data
+    if (state == TRANSRECEIVER_STATE_WAIT_FOR_TALKER) { // Talker signaled that it's ready to send data
       // TODO: Hold can be inserted here to prepare for the start of transmission
       beginReceivingData();
-    } else if (state == STATE_READY_FOR_DATA) { // Talker sent us a bit
+    } else if (state == TRANSRECEIVER_STATE_READY_FOR_DATA) { // Talker sent us a bit
       processIncomingBit();
-    } else if (state == STATE_DATA_RECEIVED) { // Talker waits for us to signal that it can send the next frame
+    } else if (state == TRANSRECEIVER_STATE_DATA_RECEIVED) { // Talker waits for us to signal that it can send the next frame
 
       if (dataBufferLength == DATA_BUFFER_SIZE - 1) { // Handle overflow if required
         if (!attention) {
@@ -99,35 +105,35 @@ void IECTransreceiver::clockLineChanged() {
       }
 
       beginReceivingData();
-    } else if (state == STATE_BECOMING_TALKER) { // Turnaround. Previous talker releases the clock line and holds the data line as a listener.
+    } else if (state == TRANSRECEIVER_STATE_BECOMING_TALKER) { // Turnaround. Previous talker releases the clock line and holds the data line as a listener.
       doTalkerTurnaround();
     }
   } else { // CLOCK is LOW
-    if (state == STATE_READY_FOR_DATA) { // Talker started to prepare bit on the line
-      stopTimer(); // Stop the EOI timer.
+    if (state == TRANSRECEIVER_STATE_READY_FOR_DATA) { // Talker started to prepare bit on the line
+      InterruptRouter::getInstance().stopTimer(); // Stop the EOI timer.
     }
   }
 }
 
 void IECTransreceiver::dataLineChanged() {
-  if (state == STATE_RESET || !talker)
+  if (state == TRANSRECEIVER_STATE_RESET || !talker)
     return;
 
   byte data = readPin(DATA_PIN);
   if (data == HIGH) {
-    if (state == STATE_TALKER_WAIT_FOR_DATA_ACCEPT) {
+    if (state == TRANSRECEIVER_STATE_TALKER_WAIT_FOR_DATA_ACCEPT) {
       if (sendingWithEoi) {
-        setState(STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE);
+        setState(TRANSRECEIVER_STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE);
       } else {
         startTransmission();
       }
-    } else if (state == STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE) {
+    } else if (state == TRANSRECEIVER_STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE) {
       startTransmission();
     }
   } else { // DATA is LOW
-    if (state == STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE) {
+    if (state == TRANSRECEIVER_STATE_TALKER_WAIT_FOR_EOI_HANDSHAKE) {
       // Stay in this state, HIGH edge will proceed.
-    } else if (state == STATE_TALKER_WAIT_FOR_FRAME_ACKNOWLEDGEMENT) {
+    } else if (state == TRANSRECEIVER_STATE_TALKER_WAIT_FOR_FRAME_ACKNOWLEDGEMENT) {
       // Listener acknowledged the frame
       finishTransmission();
     }
@@ -135,28 +141,24 @@ void IECTransreceiver::dataLineChanged() {
 }
 
 void IECTransreceiver::timerInterrupt() {
-  if (listener && state == STATE_READY_FOR_DATA) { // EOI signaled
+  if (listener && state == TRANSRECEIVER_STATE_READY_FOR_DATA) { // EOI signaled
     confirmEoi();
-  } else if (talker && state == STATE_TALKER_WRITING_DATA_BITS) {
-    stopTimer();
+  } else if (talker && state == TRANSRECEIVER_STATE_TALKER_WRITING_DATA_BITS) {
+    InterruptRouter::getInstance().stopTimer();
     sendNextBit();
   }
 }
 
-void IECTransreceiver::setReadyToSendCallback(readyToSendFunc function) {
-  readyToSendCallback = function;
-}
-
 boolean IECTransreceiver::isTalker() {
-  return state >= STATE_TALKER_IDLE;
+  return state >= TRANSRECEIVER_STATE_TALKER_IDLE;
 }
 
 boolean IECTransreceiver::isTransmitting() {
-  return state >= STATE_TALKER_WAIT_FOR_DATA_ACCEPT;
+  return state >= TRANSRECEIVER_STATE_TALKER_WAIT_FOR_DATA_ACCEPT;
 }
 
 void IECTransreceiver::goToIdleState() {
-  setState(STATE_IDLE); // Non addressed device goes back to idle state
+  setState(TRANSRECEIVER_STATE_IDLE); // Non addressed device goes back to idle state
   writePin(DATA_PIN, false);
   writePin(CLOCK_PIN, false);
 }
@@ -165,16 +167,16 @@ void IECTransreceiver::beginAttention() {
   Serial.print('a');
 
   // Stop in what we are doing and listen
-  stopTimer();
+  InterruptRouter::getInstance().stopTimer();
   listener = false;
   talker = false;
   attention = true;
   resetDataBuffer();
-  setState (STATE_WAIT_FOR_TALKER);
+  setState (TRANSRECEIVER_STATE_WAIT_FOR_TALKER);
 
   writePin(CLOCK_PIN, false);
-  enableInterrupt(CLOCK_INTERRUPT);
-  disableInterrupt(DATA_INTERRUPT);
+  InterruptRouter::getInstance().enableInterrupt(CLOCK_INTERRUPT);
+  InterruptRouter::getInstance().disableInterrupt(DATA_INTERRUPT);
   writePin(DATA_PIN, true);
 }
 
@@ -182,8 +184,7 @@ void IECTransreceiver::endAttention() {
   Serial.print('A');
   attention = false;
 
-  if (state == STATE_DATA_RECEIVED && dataBufferLength > 0) { // Last frame of the attention message received
-    //printBuffer();
+  if (state == TRANSRECEIVER_STATE_DATA_RECEIVED && dataBufferLength > 0) { // Last frame of the attention message received
 
     if (dataBuffer[0] >= 0x20 && dataBuffer[0] <= 0x3F && dataBuffer[0] - 0x20 == DEVICE_NUMBER) { // LISTEN
       processListenCommand();
@@ -202,7 +203,7 @@ void IECTransreceiver::endAttention() {
 void IECTransreceiver::processTalkCommand() {
   channelToTalk = dataBuffer[1] - 0x60;
   resetDataBuffer();
-  setState(STATE_BECOMING_TALKER);
+  setState(TRANSRECEIVER_STATE_BECOMING_TALKER);
 }
 
 void IECTransreceiver::processListenCommand() {
@@ -210,15 +211,13 @@ void IECTransreceiver::processListenCommand() {
   listener = true;
   talker = false;
   if (dataBuffer[1] >= 0xE0 && dataBuffer[1] <= 0xEE) { // OPEN the file/data channel with name transmitted next
-    byte channelNeedsOpening = dataBuffer[1] - 0xE0;
-    // TODO: signal file/data open to other class
+    dosInterpreter->onChannelOpenCommand(dataBuffer[1] - 0xE0);
   } else if (dataBuffer[1] >= 0xF0 && dataBuffer[1] <= 0xFE) { // CLOSE the file/data channel
-    byte channelNeedsClosing = dataBuffer[1] - 0xF0;
-    // TODO: signal file/data close
+    dosInterpreter->onChannelCloseCommand(dataBuffer[1] - 0xF0);
   }
 
   resetDataBuffer();
-  setState (STATE_WAIT_FOR_TALKER);
+  setState (TRANSRECEIVER_STATE_WAIT_FOR_TALKER);
   // Data line is being hold down here by us, which is exactly we need.
 }
 
@@ -238,32 +237,28 @@ void IECTransreceiver::processIncomingBit() {
     if (eoiReceived) { // Both talker and listener ends current transmission
       delayMicroseconds(60);
       writePin(DATA_PIN, false); // Release the data line
-      setState (STATE_IDLE);
+      setState (TRANSRECEIVER_STATE_IDLE);
       if (!attention) {
         processData();
       }
       resetDataBuffer();
     } else {
-      setState (STATE_DATA_RECEIVED);
+      setState (TRANSRECEIVER_STATE_DATA_RECEIVED);
     }
   }
 }
 
 void IECTransreceiver::doTalkerTurnaround() {
-  disableInterrupt(CLOCK_INTERRUPT); // TALKER will generate clock so we are not interested about changes
+  InterruptRouter::getInstance().disableInterrupt(CLOCK_INTERRUPT); // TALKER will generate clock so we are not interested about changes
   writePin(DATA_PIN, false);
   writePin(CLOCK_PIN, true);
   talker = true;
   listener = false;
   delayMicroseconds(80); // Talker acknowledge
-  setState(STATE_TALKER_IDLE);
+  setState(TRANSRECEIVER_STATE_TALKER_IDLE);
   Serial.println(); Serial.print('T');
 
-  if (readyToSendCallback != NULL) {
-    readyToSendCallback();
-  } else {
-    releaseClockLine(); // Triggers file not found
-  }
+  dosInterpreter->onBecameTalker();
 }
 
 void IECTransreceiver::processUnlistenCommand() {
@@ -281,7 +276,7 @@ void IECTransreceiver::processUntalkCommand() {
 void IECTransreceiver::confirmEoi() {
   Serial.print('e');
   // EOI signaled
-  stopTimer();
+  InterruptRouter::getInstance().stopTimer();
   eoiReceived = true;
   // EOI Timeout handshake
   writePin(DATA_PIN, true);
@@ -291,16 +286,16 @@ void IECTransreceiver::confirmEoi() {
 
 void IECTransreceiver::startTransmission() {
   setDriveLed(true);
-  disableInterrupt(DATA_INTERRUPT);
-  setState(STATE_TALKER_WRITING_DATA_BITS);
-  startTimer(40);
+  InterruptRouter::getInstance().disableInterrupt(DATA_INTERRUPT);
+  setState(TRANSRECEIVER_STATE_TALKER_WRITING_DATA_BITS);
+  InterruptRouter::getInstance().startTimer(40);
 }
 
 void IECTransreceiver::sendNextBit() {
   if (currentDataBit == 8) {
     writePin(DATA_PIN, false); // Release data line
-    setState(STATE_TALKER_WAIT_FOR_FRAME_ACKNOWLEDGEMENT);
-    enableInterrupt(DATA_INTERRUPT);
+    setState(TRANSRECEIVER_STATE_TALKER_WAIT_FOR_FRAME_ACKNOWLEDGEMENT);
+    InterruptRouter::getInstance().enableInterrupt(DATA_INTERRUPT);
     writePin(CLOCK_PIN, true); // Listener should send acknowledgment now
   } else {
     writePin(CLOCK_PIN, true); // preparing to send the next bit
@@ -310,7 +305,7 @@ void IECTransreceiver::sendNextBit() {
     writePin(CLOCK_PIN, false); // listener now becomes noticed that the data is stable
 
     currentDataBit++;
-    startTimer(60);
+    InterruptRouter::getInstance().startTimer(60);
   }
 }
 
@@ -322,7 +317,7 @@ void IECTransreceiver::finishTransmission() {
     delayMicroseconds(100); // wait time between bytes
   }
   setDriveLed(false);
-  setState(STATE_TALKER_IDLE);
+  setState(TRANSRECEIVER_STATE_TALKER_IDLE);
 }
 
 void IECTransreceiver::setState(int newState) {
@@ -332,11 +327,11 @@ void IECTransreceiver::setState(int newState) {
 void IECTransreceiver::beginReceivingData() {
   currentDataByte = 0;
   currentDataBit = 0;
-  setState(STATE_READY_FOR_DATA);
+  setState(TRANSRECEIVER_STATE_READY_FOR_DATA);
   eoiReceived = false;
   writePin(DATA_PIN, false); // Release the Data line and flag that we are listening.
   if (!attention) {
-    startTimer(250);
+    InterruptRouter::getInstance().startTimer(250);
   }
 }
 
@@ -353,4 +348,16 @@ void IECTransreceiver::printBuffer() {
 
 void IECTransreceiver::processData() {
   printBuffer();
+}
+
+void IECTransreceiver::resetLineChanged() {
+  byte reset = readPin(RESET_PIN);
+  if (reset == LOW) {
+    setDriveLed(true);
+    this->reset();
+    dosInterpreter->onTransreceiverReset();
+  } else {
+    setDriveLed(false);
+    this->start();
+  }
 }
