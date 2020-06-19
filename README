@@ -1,5 +1,4 @@
-NOTE: This project has been abandoned. If you are looking for something similar, check out the excellent SD2IEC or the Pi1541 projects which are doing similar things.
-I've kept the repository for those who are adventurous :)
+NOTE: This project has been abandoned. If you are looking for something similar, check out the excellent SD2IEC or the Pi1541 projects. I've kept the repository for those who are adventurous :)
 
 ar1541 - Commodore 1541 floppy drive emulator based on the Arduino platform.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
